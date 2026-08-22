@@ -20,9 +20,9 @@ Cross-platform build scripts and a GitHub Actions workflow are included:
 - `bin/build` — Linux
 - `bin/build-windows` — Windows (MinGW)
 - `bin/build-macos` — macOS
-- `bin/build-android` — Android
+- `bin/build-android` — Android (experimental, not published in releases)
 
-Releases are built automatically by the `Build` workflow in `.github/workflows/build.yml`, which packages artifacts for all four platforms and uploads them to a GitHub Release.
+Releases are built automatically by the `Build` workflow in `.github/workflows/build.yml`, which packages artifacts for Linux, Windows and macOS and uploads them to a GitHub Release.
 
 ## Usage
 
