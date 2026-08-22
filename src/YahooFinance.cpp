@@ -2,18 +2,22 @@
 
 #include <QDateTime>
 #include <QDir>
+#include <QEventLoop>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QMetaObject>
 #include <QMutexLocker>
+#include <QNetworkCookieJar>
+#include <QSslConfiguration>
+#include <QSslSocket>
 #include <QStandardPaths>
+#include <QTimer>
 #include <QUrl>
 #include <QUrlQuery>
 #include <QtMath>
 
 #include <cstring>
-#include <mutex>
 
 namespace {
 static const char USER_AGENT[] =
@@ -34,8 +38,22 @@ static const char CIPHER_LIST[] =
     "AES128-SHA:"
     "AES256-SHA";
 
-static const int REQUEST_TIMEOUT = 30;
+static const int REQUEST_TIMEOUT_MS = 30 * 1000;
 static const int BATCH_SIZE = 50;
+
+QNetworkRequest buildRequest(const QUrl &url) {
+    QNetworkRequest request(url);
+    request.setRawHeader("User-Agent", USER_AGENT);
+    request.setTransferTimeout(REQUEST_TIMEOUT_MS);
+
+    if (QSslSocket::supportsSsl()) {
+        QSslConfiguration sslConfig = QSslConfiguration::defaultConfiguration();
+        sslConfig.setCiphers(QString::fromLatin1(CIPHER_LIST));
+        request.setSslConfiguration(sslConfig);
+    }
+
+    return request;
+}
 }
 
 YahooFinance::YahooFinance(QObject *parent)
@@ -43,29 +61,20 @@ YahooFinance::YahooFinance(QObject *parent)
 {
 }
 
-YahooFinance::~YahooFinance()
-{
-    if (m_share)
-        curl_share_cleanup(m_share);
-    curl_global_cleanup();
-}
+YahooFinance::~YahooFinance() = default;
 
 void YahooFinance::init()
 {
-    static std::once_flag once;
-    std::call_once(once, [] { curl_global_init(CURL_GLOBAL_DEFAULT); });
-
-    m_share = curl_share_init();
-    curl_share_setopt(m_share, CURLSHOPT_SHARE, CURL_LOCK_DATA_COOKIE);
+    m_manager = new QNetworkAccessManager(this);
+    m_manager->setCookieJar(new QNetworkCookieJar(this));
+    m_manager->setRedirectPolicy(QNetworkRequest::RedirectPolicy::NoLessSafeRedirectPolicy);
 
     QDir cacheDir(QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + QStringLiteral("/omastocks"));
     cacheDir.mkpath(QStringLiteral("."));
-    m_cookieJar = cacheDir.absoluteFilePath(QStringLiteral("cookies.txt"));
 }
 
 void YahooFinance::refresh(const QStringList &symbols)
 {
-    QStringList pending;
     {
         QMutexLocker lock(&m_mutex);
         if (m_busy) {
@@ -109,7 +118,7 @@ bool YahooFinance::primeSession()
     // Seed cookies; the 404 response still sets the session cookie.
     request(QStringLiteral("https://fc.yahoo.com/"), QStringLiteral("*/*"));
 
-    const CurlResponse crumb = request(QStringLiteral("https://query1.finance.yahoo.com/v1/test/getcrumb"), QStringLiteral("*/*"));
+    const NetworkResponse crumb = request(QStringLiteral("https://query1.finance.yahoo.com/v1/test/getcrumb"), QStringLiteral("*/*"));
     if (crumb.status != 200 || crumb.body.isEmpty()) {
         m_sessionPrimed = false;
         return false;
@@ -126,51 +135,53 @@ bool YahooFinance::primeSession()
     return true;
 }
 
-CurlResponse YahooFinance::request(const QString &urlString, const QString &accept)
+NetworkResponse YahooFinance::request(const QString &urlString, const QString &accept)
 {
-    CurlResponse response;
+    NetworkResponse response;
 
-    CURL *curl = curl_easy_init();
-    if (!curl) {
-        response.error = QStringLiteral("Failed to initialize curl");
+    if (!m_manager) {
+        response.error = QStringLiteral("Network manager not initialized");
         return response;
     }
 
-    const QByteArray url = urlString.toUtf8();
-    const QByteArray acceptHeader = (QStringLiteral("Accept: ") + accept).toUtf8();
-    struct curl_slist *headers = nullptr;
+    QUrl url(urlString);
+    QNetworkRequest req = buildRequest(url);
     if (!accept.isEmpty())
-        headers = curl_slist_append(headers, acceptHeader.constData());
+        req.setRawHeader("Accept", accept.toUtf8());
 
-    curl_easy_setopt(curl, CURLOPT_URL, url.constData());
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, USER_AGENT);
-    curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, (long) CURL_HTTP_VERSION_1_1);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, (long) REQUEST_TIMEOUT);
-    curl_easy_setopt(curl, CURLOPT_SSL_CIPHER_LIST, CIPHER_LIST);
-    curl_easy_setopt(curl, CURLOPT_COOKIEJAR, m_cookieJar.toUtf8().constData());
-    curl_easy_setopt(curl, CURLOPT_COOKIEFILE, m_cookieJar.toUtf8().constData());
-    curl_easy_setopt(curl, CURLOPT_SHARE, m_share);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response.body);
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    QNetworkReply *reply = m_manager->get(req);
 
-    const CURLcode res = curl_easy_perform(curl);
-    if (res == CURLE_OK)
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response.status);
-    else
-        response.error = QString::fromUtf8(curl_easy_strerror(res));
+    QEventLoop loop;
+    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
 
-    if (headers)
-        curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
+    QTimer timer;
+    timer.setSingleShot(true);
+    timer.setInterval(REQUEST_TIMEOUT_MS);
+    QObject::connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
+    timer.start();
 
-    if (res != CURLE_OK)
+    loop.exec();
+
+    if (!timer.isActive()) {
+        reply->abort();
+        response.error = QStringLiteral("Request timed out");
+        reply->deleteLater();
         return response;
+    }
 
-    if (response.status != 200)
+    timer.stop();
+
+    response.status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    response.body = reply->readAll();
+
+    if (reply->error() != QNetworkReply::NoError) {
+        if (response.error.isEmpty())
+            response.error = reply->errorString();
+    } else if (response.status != 200) {
         response.error = QStringLiteral("HTTP %1").arg(response.status);
+    }
 
+    reply->deleteLater();
     return response;
 }
 
@@ -190,7 +201,7 @@ void YahooFinance::doRefresh(const QStringList &symbols)
         QUrl url(QStringLiteral("https://query1.finance.yahoo.com/v7/finance/quote"));
         url.setQuery(query);
 
-        const CurlResponse response = request(url.toString());
+        const NetworkResponse response = request(url.toString());
         if (response.status != 200) {
             finishWithError(response.error.isEmpty() ? QStringLiteral("Yahoo request failed") : response.error);
             return;
@@ -240,7 +251,7 @@ void YahooFinance::doFetchChart(const QString &symbol, const QString &range)
     QUrl url(QStringLiteral("https://query1.finance.yahoo.com/v8/finance/chart/%1").arg(symbol));
     url.setQuery(query);
 
-    const CurlResponse response = request(url.toString());
+    const NetworkResponse response = request(url.toString());
     if (response.status != 200) {
         finishWithError(response.error.isEmpty() ? QStringLiteral("Yahoo chart request failed") : response.error);
         return;
@@ -388,13 +399,6 @@ void YahooFinance::finishSuccess()
         QMetaObject::invokeMethod(this, "refresh", Qt::QueuedConnection, Q_ARG(QStringList, pending));
     if (!pendingChart.isEmpty())
         QMetaObject::invokeMethod(this, "fetchChart", Qt::QueuedConnection, Q_ARG(QString, pendingChart), Q_ARG(QString, pendingRange));
-}
-
-size_t YahooFinance::writeCallback(char *ptr, size_t size, size_t nmemb, void *userdata)
-{
-    auto *buffer = static_cast<QByteArray *>(userdata);
-    buffer->append(ptr, size * nmemb);
-    return size * nmemb;
 }
 
 QStringList YahooFinance::chunkSymbols(const QStringList &symbols, int chunkSize)

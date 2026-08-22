@@ -1,0 +1,146 @@
+name: Build
+
+on:
+  push:
+    branches: [master]
+    tags: ['*']
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag to upload assets to (optional)'
+        required: false
+        default: ''
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.2'
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev
+      - name: Build
+        run: bin/build
+      - name: Package
+        run: |
+          mkdir -p dist
+          tar czf dist/omastocks-linux-x86_64.tar.gz -C build omastocks
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: omastocks-linux
+          path: dist/omastocks-linux-x86_64.tar.gz
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.2'
+          arch: 'win64_mingw'
+          tools: 'tools_mingw1310'
+      - name: Build
+        shell: bash
+        run: |
+          export PATH="$IQTA_TOOLS/mingw1310_64/bin:$PATH"
+          QMAKE="$QT_ROOT_DIR/bin/qmake" QMAKE_SPEC=win32-g++ bin/build-windows
+      - name: Deploy
+        shell: bash
+        run: |
+          "$QT_ROOT_DIR/bin/windeployqt" build-windows/release/OMAStocks.exe
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p dist
+          7z a -tzip dist/omastocks-windows-x86_64.zip ./build-windows/release -xr!*.o -xr!*.obj -xr!*.cpp -xr!*.h -xr!moc_* -xr!qrc_* -xr!moc_predefs*
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: omastocks-windows
+          path: dist/omastocks-windows-x86_64.zip
+
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 15.4
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.2'
+      - name: Build
+        run: QMAKE="$QT_ROOT_DIR/bin/qmake" bin/build-macos
+      - name: Package
+        run: |
+          mkdir -p dist
+          ditto -c -k --keepParent build-macos/OMAStocks.app dist/omastocks-macos-arm64.zip
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: omastocks-macos
+          path: dist/omastocks-macos-arm64.zip
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - name: Install Android SDK/NDK
+        uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '12266719'
+      - name: Install NDK
+        run: sdkmanager --install "ndk;26.1.10909125"
+      - name: Install Qt for Android
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.2'
+          target: 'android'
+          arch: 'android_arm64_v8a'
+      - name: Build
+        run: |
+          QMAKE="$QT_ROOT_DIR/bin/qmake" \
+          ANDROID_HOME="$ANDROID_HOME" \
+          ANDROID_NDK="$ANDROID_HOME/ndk/26.1.10909125" \
+          bin/build-android
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: omastocks-android
+          path: build-android/android-build/omastocks.apk
+
+  release:
+    needs: [linux, windows, macos, android]
+    runs-on: ubuntu-latest
+    if: github.event.inputs.release_tag != '' || startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.inputs.release_tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          gh release upload "$TAG" artifacts/omastocks-linux/*.tar.gz artifacts/omastocks-windows/*.zip artifacts/omastocks-macos/*.zip artifacts/omastocks-android/*.apk --clobber

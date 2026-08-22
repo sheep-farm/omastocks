@@ -1,0 +1,36 @@
+#!/usr/bin/env sh
+set -eu
+
+# Build omastocks for Windows.
+#
+# Requirements:
+#   - Qt 6 built for Windows (MinGW or MSVC).
+#   - libcurl built for the same toolchain.
+#
+# On Linux with MinGW-w64 and a Qt for Windows build, run:
+#   QMAKE=/path/to/qt-windows/bin/qmake \
+#   CURL_PATH=/path/to/curl-mingw \
+#   bin/build-windows
+#
+# On Windows natively, use the Qt command prompt and run this script from
+# Git Bash or PowerShell.
+
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+BUILD_DIR="$ROOT/build-windows"
+
+: "${QMAKE:=qmake6}"
+
+if ! command -v "$QMAKE" >/dev/null 2>&1; then
+    echo "Qt qmake not found: $QMAKE" >&2
+    echo "Set QMAKE to your Windows Qt qmake binary." >&2
+    exit 1
+fi
+
+mkdir -p "$BUILD_DIR"
+cd "$BUILD_DIR"
+
+SPEC="${QMAKE_SPEC:-win32-g++}"
+"$QMAKE" -spec "$SPEC" "$ROOT/omastocks.pro"
+make -j"$(nproc 2>/dev/null || echo 1)"
+
+echo "Built $BUILD_DIR/release/OMAStocks.exe"

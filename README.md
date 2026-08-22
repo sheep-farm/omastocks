@@ -13,6 +13,17 @@ bin/install        # installs to ~/.local/bin/omastocks and registers a Hyprland
 
 To uninstall later, run `bin/install uninstall`.
 
+## Multi-platform builds
+
+Cross-platform build scripts and a GitHub Actions workflow are included:
+
+- `bin/build` — Linux
+- `bin/build-windows` — Windows (MinGW)
+- `bin/build-macos` — macOS
+- `bin/build-android` — Android
+
+Releases are built automatically by the `Build` workflow in `.github/workflows/build.yml`, which packages artifacts for all four platforms and uploads them to a GitHub Release.
+
 ## Usage
 
 Omastocks keeps a watchlist of ticker symbols and refreshes prices from Yahoo Finance.
@@ -43,8 +54,7 @@ Colors follow the current Omarchy theme (`~/.local/state/omarchy/current/theme/c
 
 ## Requirements
 
-- Qt 6: `qt6-base`, `qt6-declarative`, `qt6-quickcontrols2`
-- `libcurl`
-- `xdg-desktop-portal` and a portal backend
+- Qt 6: `qt6-base`, `qt6-declarative`, `qt6-quickcontrols2`, `qt6-network`
+- `xdg-desktop-portal` and a portal backend (Linux desktop)
 
 The iA Writer Mono font is bundled under the SIL Open Font License 1.1; see `fonts/OFL.txt`.

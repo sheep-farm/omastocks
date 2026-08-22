@@ -1,0 +1,50 @@
+#!/usr/bin/env sh
+set -eu
+
+# Build omastocks for Android.
+#
+# Requirements:
+#   - Android SDK and NDK.
+#   - Qt 6 for Android (e.g. $HOME/Qt/6.x.x/android_arm64_v8a).
+#   - libcurl built for the target Android ABIs.
+#   - JAVA_HOME pointing to a JDK (17 or newer).
+#
+# Environment:
+#   QMAKE        path to the Android Qt qmake binary
+#   ANDROID_HOME path to the Android SDK
+#   ANDROID_NDK  path to the Android NDK
+#   CURL_PATH    path to the Android libcurl prefix (optional)
+#
+# Example:
+#   QMAKE=$HOME/Qt/6.8.0/android_arm64_v8a/bin/qmake \
+#   ANDROID_HOME=$HOME/Android/Sdk \
+#   ANDROID_NDK=$HOME/Android/Sdk/ndk/26.1.10909125 \
+#   bin/build-android
+
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+BUILD_DIR="$ROOT/build-android"
+
+: "${QMAKE:=qmake6}"
+
+if [ -z "${ANDROID_HOME:-}" ] || [ -z "${ANDROID_NDK:-}" ]; then
+    echo "Set ANDROID_HOME and ANDROID_NDK." >&2
+    exit 1
+fi
+
+if ! command -v "$QMAKE" >/dev/null 2>&1; then
+    echo "Qt qmake not found: $QMAKE" >&2
+    echo "Set QMAKE to your Android Qt qmake binary." >&2
+    exit 1
+fi
+
+mkdir -p "$BUILD_DIR"
+cd "$BUILD_DIR"
+
+export ANDROID_HOME
+export ANDROID_NDK
+
+"$QMAKE" "$ROOT/omastocks.pro"
+make -j"$(nproc 2>/dev/null || echo 1)"
+make apk
+
+echo "APK built in $BUILD_DIR/android-build/build/outputs/apk/"

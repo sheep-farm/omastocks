@@ -3,7 +3,9 @@
 #include <QObject>
 #include <functional>
 
+#if defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID)
 class QDBusVariant;
+#endif
 
 class SystemTheme : public QObject {
     Q_OBJECT
@@ -22,14 +24,18 @@ public slots:
     void refresh();
 
 private slots:
+#if defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID)
     void handlePortalSettingChanged(const QString &nameSpace, const QString &key,
                                     const QDBusVariant &value);
+#endif
 
 private:
+#if defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID)
     void requestPortalSetting(const QString &nameSpace, const QString &key,
                               std::function<void(const QVariant &)> handler);
     void requestPortalDarkMode();
     void requestPortalTextScale();
+#endif
     bool qtDarkMode(bool *known) const;
     void setDarkMode(bool darkMode);
     void setTextScale(qreal textScale);

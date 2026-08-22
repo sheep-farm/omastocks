@@ -4,15 +4,16 @@
 
 #include <QJsonDocument>
 #include <QMutex>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QObject>
 #include <QStringList>
 #include <QVariantList>
 
-#include <curl/curl.h>
-
-struct CurlResponse {
+struct NetworkResponse {
     QByteArray body;
-    long status = 0;
+    int status = 0;
     QString error;
 };
 
@@ -36,7 +37,7 @@ signals:
 
 private:
     bool primeSession();
-    CurlResponse request(const QString &url, const QString &accept = QStringLiteral("application/json"));
+    NetworkResponse request(const QString &url, const QString &accept = QStringLiteral("application/json"));
     void doRefresh(const QStringList &symbols);
     void doFetchChart(const QString &symbol, const QString &range);
     QVector<Stock> parseQuotes(const QByteArray &data);
@@ -44,14 +45,12 @@ private:
     void finishWithError(const QString &error);
     void finishSuccess();
 
-    static size_t writeCallback(char *ptr, size_t size, size_t nmemb, void *userdata);
     static QStringList chunkSymbols(const QStringList &symbols, int chunkSize);
 
-    CURLSH *m_share = nullptr;
+    QNetworkAccessManager *m_manager = nullptr;
     QString m_crumb;
     bool m_sessionPrimed = false;
     bool m_busy = false;
-    QString m_cookieJar;
     QMutex m_mutex;
     QStringList m_pendingSymbols;
     QString m_pendingChartSymbol;

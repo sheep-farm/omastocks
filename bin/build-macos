@@ -1,0 +1,30 @@
+#!/usr/bin/env sh
+set -eu
+
+# Build omastocks for macOS.
+#
+# Requirements:
+#   - Qt 6 for macOS (installed via the Qt installer or Homebrew).
+#   - libcurl (shipped with macOS).
+#
+# Run on macOS:
+#   QMAKE=/path/to/Qt/6.x.x/macos/bin/qmake bin/build-macos
+
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+BUILD_DIR="$ROOT/build-macos"
+
+: "${QMAKE:=qmake6}"
+
+if ! command -v "$QMAKE" >/dev/null 2>&1; then
+    echo "Qt qmake not found: $QMAKE" >&2
+    echo "Set QMAKE to your macOS Qt qmake binary." >&2
+    exit 1
+fi
+
+mkdir -p "$BUILD_DIR"
+cd "$BUILD_DIR"
+
+"$QMAKE" -spec macx-clang "$ROOT/omastocks.pro"
+make -j"$(sysctl -n hw.ncpu 2>/dev/null || echo 1)"
+
+echo "Built $BUILD_DIR/OMAStocks.app"

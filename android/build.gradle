@@ -1,0 +1,18 @@
+// Minimal Gradle build file for omastocks Android packaging.
+// The Qt build system fills in the project structure automatically.
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.1.0'
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
