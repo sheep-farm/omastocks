@@ -1,0 +1,12 @@
+<RCC>
+    <qresource prefix="/">
+        <file alias="Main.qml">Main.qml</file>
+        <file alias="StockCard.qml">StockCard.qml</file>
+        <file alias="StockDetail.qml">StockDetail.qml</file>
+        <file alias="ChartCanvas.qml">ChartCanvas.qml</file>
+        <file alias="fonts/iAWriterMonoS-Regular.ttf">../fonts/iAWriterMonoS-Regular.ttf</file>
+        <file alias="fonts/iAWriterMonoS-Bold.ttf">../fonts/iAWriterMonoS-Bold.ttf</file>
+        <file alias="fonts/iAWriterMonoS-Italic.ttf">../fonts/iAWriterMonoS-Italic.ttf</file>
+        <file alias="fonts/iAWriterMonoS-BoldItalic.ttf">../fonts/iAWriterMonoS-BoldItalic.ttf</file>
+    </qresource>
+</RCC>

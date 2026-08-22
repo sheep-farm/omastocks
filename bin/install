@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+BUILD_DIR="$PROJECT_DIR/build"
+INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
+
+uninstall() {
+    echo "Uninstalling omastocks..."
+
+    if [ -f "$INSTALL_DIR/omastocks" ]; then
+        rm "$INSTALL_DIR/omastocks"
+        echo "Removed $INSTALL_DIR/omastocks"
+    fi
+
+    HYPR_FILE="$HOME/.config/hypr/hyprland.lua"
+    if [ -f "$HYPR_FILE" ]; then
+        if grep -q 'o.window("omastocks"' "$HYPR_FILE"; then
+            grep -v 'o.window("omastocks"' "$HYPR_FILE" > "$HYPR_FILE.tmp" && mv "$HYPR_FILE.tmp" "$HYPR_FILE"
+            echo "Removed Omarchy window rule from $HYPR_FILE"
+            if command -v hyprctl >/dev/null 2>&1; then
+                hyprctl reload >/dev/null 2>&1 || true
+            fi
+        fi
+    fi
+
+    if [ -d "$BUILD_DIR" ]; then
+        rm -rf "$BUILD_DIR"
+        echo "Removed $BUILD_DIR"
+    fi
+
+    echo "omastocks uninstalled."
+}
+
+install() {
+    if command -v qmake6 >/dev/null 2>&1; then
+        QMAKE=qmake6
+    elif command -v qmake >/dev/null 2>&1 && qmake -query QT_VERSION | grep -q '^6\.'; then
+        QMAKE=qmake
+    else
+        echo "A Qt 6 qmake (qmake6) is required to build omastocks." >&2
+        exit 1
+    fi
+
+    mkdir -p "$BUILD_DIR"
+    cd "$BUILD_DIR"
+
+    "$QMAKE" "$PROJECT_DIR/omastocks.pro"
+    make -j"$(nproc)"
+
+    mkdir -p "$INSTALL_DIR"
+    cp "$BUILD_DIR/omastocks" "$INSTALL_DIR/omastocks"
+
+    # Configure Omarchy (Hyprland) to float and center omastocks on launch.
+    HYPR_FILE="$HOME/.config/hypr/hyprland.lua"
+    if [ -f "$HYPR_FILE" ]; then
+        RULE='o.window("omastocks", { float = true, center = true, size = { 480, 720 } })'
+        if grep -q 'o.window("omastocks"' "$HYPR_FILE"; then
+            sed -i "/o.window(\"omastocks\"/c\\$RULE" "$HYPR_FILE"
+            echo "Updated Omarchy window rule in $HYPR_FILE"
+        else
+            echo "$RULE" >> "$HYPR_FILE"
+            echo "Added Omarchy window rule to $HYPR_FILE"
+        fi
+        if command -v hyprctl >/dev/null 2>&1; then
+            hyprctl reload >/dev/null 2>&1 || true
+        fi
+    fi
+
+    echo "omastocks installed to $INSTALL_DIR/omastocks"
+}
+
+case "${1:-install}" in
+    install|--install|''|-i)
+        install
+        ;;
+    uninstall|--uninstall|-u)
+        uninstall
+        ;;
+    *)
+        echo "Usage: $0 [install|uninstall]" >&2
+        exit 1
+        ;;
+esac
