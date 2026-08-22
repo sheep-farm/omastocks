@@ -9,6 +9,7 @@
 #include <QMetaObject>
 #include <QMutexLocker>
 #include <QNetworkCookieJar>
+#include <QSslCipher>
 #include <QSslConfiguration>
 #include <QSslSocket>
 #include <QStandardPaths>
@@ -46,10 +47,28 @@ QNetworkRequest buildRequest(const QUrl &url) {
     request.setRawHeader("User-Agent", USER_AGENT);
     request.setTransferTimeout(REQUEST_TIMEOUT_MS);
 
+    // Use the curated cipher list whenever the backend actually supports the
+    // named ciphers. If none match (common on Android), leave the default
+    // system list so the handshake still works.
     if (QSslSocket::supportsSsl()) {
         QSslConfiguration sslConfig = QSslConfiguration::defaultConfiguration();
-        sslConfig.setCiphers(QString::fromLatin1(CIPHER_LIST));
-        request.setSslConfiguration(sslConfig);
+        const QList<QSslCipher> backendCiphers = QSslConfiguration::supportedCiphers();
+
+        QStringList backendNames;
+        for (const QSslCipher &cipher : backendCiphers)
+            backendNames.append(cipher.name());
+
+        const QStringList wantedCiphers = QString::fromLatin1(CIPHER_LIST).split(QLatin1Char(':'), Qt::SkipEmptyParts);
+        QStringList filteredCiphers;
+        for (const QString &name : wantedCiphers) {
+            if (backendNames.contains(name))
+                filteredCiphers.append(name);
+        }
+
+        if (!filteredCiphers.isEmpty()) {
+            sslConfig.setCiphers(filteredCiphers.join(QLatin1Char(':')));
+            request.setSslConfiguration(sslConfig);
+        }
     }
 
     return request;
